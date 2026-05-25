@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import os
 import re
+import json
 from urllib.parse import urljoin, urlparse
 import time
 
@@ -16,6 +17,7 @@ def download_images_deep(url, save_folder='spratly_images_full'):
     }
     
     downloaded_urls = set()
+    image_link_list = []
     total_downloaded = 0
 
     def save_image(img_url, source_type="direct"):
@@ -26,17 +28,28 @@ def download_images_deep(url, save_folder='spratly_images_full'):
             return False
         try:
             parsed = urlparse(img_url)
+            abs_url = img_url
             if not parsed.netloc:
-                img_url = urljoin(url, img_url)
+                abs_url = urljoin(url, img_url)
             
+            if abs_url in downloaded_urls:
+                return False
+            
+            # 存入链接列表
+            downloaded_urls.add(abs_url)
+            image_link_list.append({
+                "source_type": source_type,
+                "image_url": abs_url
+            })
+
             time.sleep(0.3)
-            resp = requests.get(img_url, headers=headers, timeout=15, stream=True)
+            resp = requests.get(abs_url, headers=headers, timeout=15, stream=True)
             resp.raise_for_status()
             
             fname = os.path.basename(parsed.path)
             if not fname or len(fname) < 3:
                 ext = '.jpg'
-                if 'png' in img_url.lower():
+                if 'png' in abs_url.lower():
                     ext = '.png'
                 fname = f'{source_type}_{total_downloaded + 1}{ext}'
                 
@@ -47,36 +60,48 @@ def download_images_deep(url, save_folder='spratly_images_full'):
                 for chunk in resp.iter_content(4096):
                     f.write(chunk)
                     
-            downloaded_urls.add(img_url)
             total_downloaded += 1
-            print(f'[{total_downloaded}] [{source_type}] {img_url}')
+            print(f'[{total_downloaded}] [{source_type}] {abs_url}')
             return True
             
         except Exception as e:
-            print(f'图片下载失败：', str(e))
+            print(f'图片下载失败：{str(e)}')
             return False
     
     try:
         resp = requests.get(url, headers=headers, timeout=15)
         soup = BeautifulSoup(resp.text, 'html.parser')
         
-        # 抓取普通img、懒加载图片
+        # 1. 常规图片、懒加载图片
         for img in soup.find_all('img'):
             src = img.get('src') or img.get('data-src') or img.get('data-original')
             save_image(src, 'img')
         
-        # 抓取css背景图片
+        # 2. CSS背景图
         bg_pattern = re.compile(r'background[^;]*url\(["\']?(.*?)["\']?\)', re.I)
         for tag in soup.find_all(style=True):
             for bg_url in bg_pattern.findall(tag['style']):
                 save_image(bg_url, 'bg')
         
-        # 正则匹配页面内所有图片链接
+        # 3. 文本内图片链接
         link_pattern = re.compile(r'(https?://[^"\'\s]+\.(jpg|jpeg|png|gif|webp))', re.I)
         for match in link_pattern.finditer(resp.text):
             save_image(match.group(1), 'link')
-        
-        print(f"\n===== 抓取完成 =====\n共获取图片：{total_downloaded} 张")
+
+        # 导出链接到JSON文件
+        json_data = {
+            "crawl_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "source_url": url,
+            "total_count": len(image_link_list),
+            "images": image_link_list
+        }
+        with open("image_links.json", "w", encoding="utf-8") as f:
+            json.dump(json_data, f, ensure_ascii=False, indent=2)
+
+        print(f"\n===== 抓取完成 =====")
+        print(f"总计图片数量：{len(image_link_list)} 张")
+        print(f"链接已保存至：image_links.json")
+
     except Exception as e:
         print(f'页面请求异常：{str(e)}')
 
