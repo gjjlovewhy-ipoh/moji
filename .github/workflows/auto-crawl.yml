@@ -1,13 +1,10 @@
-name: 自动抓取墨迹天气图片
+name: 自动抓取墨迹天气图片+导出链接JSON
 
-# 触发规则
 on:
   push:
     branches: [ main ]
-  # 定时每日自动执行一次
   schedule:
     - cron: '0 8 * * *'
-  # 支持手动点击运行
   workflow_dispatch:
 
 jobs:
@@ -27,14 +24,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: 执行图片爬虫
+      - name: 执行爬虫，生成图片+JSON链接
         run: python main.py
 
-      - name: 压缩抓取的图片文件夹
-        run: zip -r spratly_images.zip spratly_images_full/
+      - name: 打包所有资源（图片+JSON）
+        run: zip -r crawl_result.zip spratly_images_full/ image_links.json
 
-      - name: 上传图片压缩包为产物
+      - name: 上传运行产物
         uses: actions/upload-artifact@v4
         with:
-          name: 抓取图片归档
-          path: spratly_images.zip
+          name: 图片与链接JSON归档
+          path: crawl_result.zip
